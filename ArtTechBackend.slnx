@@ -1,2 +1,5 @@
 <Solution>
+  <Project Path="ArtTechGallery.API/ArtTechGallery.API.csproj" />
+  <Project Path="ArtTechGallery.Core/ArtTechGallery.Core.csproj" />
+  <Project Path="ArtTechGallery.Infrastructure/ArtTechGallery.Infrastructure.csproj" />
 </Solution>
