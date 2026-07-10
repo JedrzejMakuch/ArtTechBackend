@@ -1,0 +1,67 @@
+﻿bin/
+obj/
+[Oo]ut/
+*.exe
+*.dll
+*.pdb
+
+# Visual Studio artifacts
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln.docstates
+.DS_Store
+
+# ReSharper
+.idea/
+*.resharper
+*.resharper.user
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+# Local user files
+appsettings.Development.json
+appsettings.Local.json
+secrets.json
+.env
+.env.local
+
+# Rider
+.idea/
+*.sln.iml
+
+# Test Results
+TestResults/
+*.trx
+coverage/
+
+# Logs
+logs/
+*.log
+
+# Runtime
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.editorconfig.user
+launchSettings.json
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Node
+node_modules/
+npm-debug.log
+
+# Temporary files
+*.tmp
+*.bak
+~*
