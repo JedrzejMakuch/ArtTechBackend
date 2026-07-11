@@ -22,11 +22,11 @@ public class ArtistProfileConfiguration : IEntityTypeConfiguration<ArtistProfile
             .IsRequired()
             .HasMaxLength(1000);
 
-        builder.Property(x => x.ShareCode)
+        builder.Property(x => x.ProfileCode)
             .IsRequired()
             .HasMaxLength(16);
 
-        builder.HasIndex(x => x.ShareCode)
+        builder.HasIndex(x => x.ProfileCode)
             .IsUnique();
 
         builder.HasIndex(x => x.UserId)

@@ -16,7 +16,7 @@ public class ArtistProfile
 
     public string ProfileImageUrl { get; set; } = string.Empty;
 
-    public string ShareCode { get; set; } = string.Empty;
+    public string ProfileCode { get; set; } = string.Empty;
 
     public bool IsActive { get; set; } = true;
 

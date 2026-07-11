@@ -18,11 +18,11 @@ public class ExhibitionConfiguration : IEntityTypeConfiguration<Exhibition>
             .IsRequired()
             .HasMaxLength(2000);
 
-        builder.Property(x => x.ShareCode)
+        builder.Property(x => x.ExhibitionCode)
             .IsRequired()
             .HasMaxLength(16);
 
-        builder.HasIndex(x => x.ShareCode)
+        builder.HasIndex(x => x.ExhibitionCode)
             .IsUnique();
 
         builder.HasOne(x => x.ArtistProfile)
