@@ -28,6 +28,21 @@ builder.Services.AddControllers();
 
 var app = builder.Build();
 
+if (app.Environment.IsDevelopment())
+{
+    await using AsyncServiceScope scope = app.Services.CreateAsyncScope();
+
+    AppDbContext dbContext =
+        scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+    UserManager<User> userManager =
+        scope.ServiceProvider.GetRequiredService<UserManager<User>>();
+
+    await dbContext.Database.MigrateAsync();
+
+    await AppDbSeeder.SeedAsync(dbContext, userManager);
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 

@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: arttechgallery-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: arttechgallery
+      POSTGRES_USER: arttech
+      POSTGRES_PASSWORD: arttech_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - arttechgallery_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arttech -d arttechgallery"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  arttechgallery_postgres_data:
