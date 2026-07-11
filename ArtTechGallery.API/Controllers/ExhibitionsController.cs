@@ -57,7 +57,10 @@ public sealed class ExhibitionsController : ControllerBase
 
         if (exhibition is null)
         {
-            return NotFound();
+            return Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "Exhibition not found",
+                detail: $"No active exhibition with code '{exhibitionCode}' was found.");
         }
 
         return Ok(exhibition);

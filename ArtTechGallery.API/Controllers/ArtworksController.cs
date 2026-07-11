@@ -51,7 +51,10 @@ public sealed class ArtworksController : ControllerBase
 
         if (artwork is null)
         {
-            return NotFound();
+            return Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "Artwork not found",
+                detail: $"No active artwork with id '{id}' was found.");
         }
 
         return Ok(artwork);

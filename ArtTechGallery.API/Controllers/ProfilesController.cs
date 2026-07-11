@@ -55,7 +55,10 @@ public sealed class ProfilesController : ControllerBase
 
         if (profile is null)
         {
-            return NotFound();
+            return Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "Artist profile not found",
+                detail: $"No active artist profile with code '{profileCode}' was found.");
         }
 
         return Ok(profile);
