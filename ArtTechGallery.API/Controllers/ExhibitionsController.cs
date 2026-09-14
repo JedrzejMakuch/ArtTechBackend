@@ -28,7 +28,8 @@ public sealed class ExhibitionsController : ControllerBase
             .Where(x =>
                 x.ExhibitionCode == exhibitionCode &&
                 x.IsActive &&
-                x.ArtistProfile.IsActive)
+                x.ArtistProfile.IsActive &&
+                x.ArtistProfile.User.IsActive)
             .Select(x => new ExhibitionDto
             {
                 Id = x.Id,

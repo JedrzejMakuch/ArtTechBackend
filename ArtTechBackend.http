@@ -1,6 +1,40 @@
 @ArtTechBackend_HostAddress = http://localhost:5184
 
-GET {{ArtTechBackend_HostAddress}}/weatherforecast/
-Accept: application/json
+@email = artist@example.test
+@password = REPLACE_WITH_LOCAL_TEST_PASSWORD
+@accessToken = REPLACE_WITH_LOGIN_ACCESS_TOKEN
+@profileCode = REPLACE_WITH_CREATED_PROFILE_CODE
 
 ###
+POST {{ArtTechBackend_HostAddress}}/register
+Content-Type: application/json
+
+{"email":"{{email}}","password":"{{password}}"}
+
+###
+POST {{ArtTechBackend_HostAddress}}/login?useCookies=false
+Content-Type: application/json
+
+{"email":"{{email}}","password":"{{password}}"}
+
+### Before onboarding: 404. After onboarding: 200.
+GET {{ArtTechBackend_HostAddress}}/api/artist/profile
+Authorization: Bearer {{accessToken}}
+
+### Create: 201. Repeating this request: 409.
+POST {{ArtTechBackend_HostAddress}}/api/artist/profile
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{"displayName":"Artist name","bio":"My biography"}
+
+### Update only editable fields.
+PUT {{ArtTechBackend_HostAddress}}/api/artist/profile
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{"displayName":"Updated artist name","bio":"Updated biography"}
+
+### Public viewing needs no token.
+GET {{ArtTechBackend_HostAddress}}/api/profiles/{{profileCode}}
+Accept: application/json

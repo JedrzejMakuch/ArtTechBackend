@@ -3,6 +3,8 @@ using ArtTechGallery.Infrastructure.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
+using ArtTechGallery.API.Authorization;
+using Microsoft.AspNetCore.Authorization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,10 +22,15 @@ builder.Services
     .AddApiEndpoints();
 
 builder.Services
-    .AddAuthentication()
+    .AddAuthentication(IdentityConstants.BearerScheme)
     .AddBearerToken(IdentityConstants.BearerScheme);
 
 builder.Services.AddAuthorization();
+builder.Services.AddAuthorizationBuilder().AddPolicy(ActiveUserRequirement.PolicyName, policy =>
+    policy.AddAuthenticationSchemes(IdentityConstants.BearerScheme)
+        .RequireAuthenticatedUser().AddRequirements(new ActiveUserRequirement()));
+builder.Services.AddScoped<IAuthorizationHandler, ActiveUserAuthorizationHandler>();
+builder.Services.AddSingleton<ProfileCodeGenerator>();
 
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
@@ -72,3 +79,6 @@ app.MapControllers();
 app.MapIdentityApi<User>();
 
 app.Run();
+
+// Entry point for the integration test host.
+public partial class Program { }
