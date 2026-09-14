@@ -2,6 +2,7 @@ using ArtTechGallery.Core.Models;
 using ArtTechGallery.Infrastructure.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -34,6 +35,22 @@ app.UseStatusCodePages();
 
 if (app.Environment.IsDevelopment())
 {
+    // Opt-in local fixtures, separate from any future production image storage.
+    Uri? demoBaseUri = AppDbSeeder.ValidateDevelopmentPublicBaseUrl(
+        builder.Configuration["DevelopmentDemo:PublicBaseUrl"]);
+
+    if (demoBaseUri is not null)
+    {
+        var assets = new PhysicalFileProvider(Path.Combine(
+            app.Environment.ContentRootPath, "DevelopmentAssets", "Artworks"));
+        app.Lifetime.ApplicationStopped.Register(assets.Dispose);
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            FileProvider = assets,
+            RequestPath = AppDbSeeder.DevelopmentAssetRequestPath
+        });
+    }
+
     await using AsyncServiceScope scope = app.Services.CreateAsyncScope();
 
     AppDbContext dbContext =
@@ -44,7 +61,7 @@ if (app.Environment.IsDevelopment())
 
     await dbContext.Database.MigrateAsync();
 
-    await AppDbSeeder.SeedAsync(dbContext, userManager);
+    await AppDbSeeder.SeedAsync(dbContext, userManager, demoBaseUri);
 }
 
 app.UseAuthentication();

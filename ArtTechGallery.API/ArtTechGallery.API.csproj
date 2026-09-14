@@ -17,4 +17,10 @@
     <ProjectReference Include="..\ArtTechGallery.Infrastructure\ArtTechGallery.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Source-tree development fixtures must never ship with published applications. -->
+    <Content Update="DevelopmentAssets/**" CopyToPublishDirectory="Never" />
+    <None Update="DevelopmentAssets/**" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
 </Project>
