@@ -42,6 +42,7 @@ public sealed class ExhibitionsController : ControllerBase
                 Artworks = x.Artworks
                     .Where(artwork => artwork.IsActive)
                     .OrderBy(artwork => artwork.SortOrder)
+                    .ThenBy(artwork => artwork.Id)
                     .Select(artwork => new ArtworkDto
                     {
                         Id = artwork.Id,
