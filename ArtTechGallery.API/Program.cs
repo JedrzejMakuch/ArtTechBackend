@@ -31,6 +31,7 @@ builder.Services.AddAuthorizationBuilder().AddPolicy(ActiveUserRequirement.Polic
         .RequireAuthenticatedUser().AddRequirements(new ActiveUserRequirement()));
 builder.Services.AddScoped<IAuthorizationHandler, ActiveUserAuthorizationHandler>();
 builder.Services.AddSingleton<ProfileCodeGenerator>();
+builder.Services.AddSingleton<ExhibitionCodeGenerator>();
 
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();

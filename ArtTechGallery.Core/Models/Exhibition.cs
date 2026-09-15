@@ -12,6 +12,6 @@ public class Exhibition
 
     public string ExhibitionCode { get; set; } = string.Empty;
     public int SortOrder { get; set; }
-    public bool IsActive { get; set; } = true;
+    public ExhibitionStatus Status { get; set; } = ExhibitionStatus.Draft;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

@@ -1,4 +1,5 @@
 using ArtTechGallery.Core.DTOs;
+using ArtTechGallery.Core.Models;
 using ArtTechGallery.Infrastructure.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -37,7 +38,7 @@ public sealed class ProfilesController : ControllerBase
                 Bio = x.Bio,
                 ProfileImageUrl = x.ProfileImageUrl,
                 Exhibitions = x.Exhibitions
-                    .Where(exhibition => exhibition.IsActive)
+                    .Where(exhibition => exhibition.Status == ExhibitionStatus.Published)
                     .OrderBy(exhibition => exhibition.SortOrder)
                     .Select(exhibition => new ExhibitionSummaryDto
                     {

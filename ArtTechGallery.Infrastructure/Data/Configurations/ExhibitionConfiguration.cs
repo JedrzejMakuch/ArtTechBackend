@@ -10,6 +10,10 @@ public class ExhibitionConfiguration : IEntityTypeConfiguration<Exhibition>
     {
         builder.HasKey(x => x.Id);
 
+        builder.Property(x => x.Status).HasDefaultValue(ExhibitionStatus.Draft)
+            .IsConcurrencyToken();
+        builder.ToTable(t => t.HasCheckConstraint("CK_Exhibitions_Status", "\"Status\" IN (0, 1, 2)"));
+
         builder.Property(x => x.Title)
             .IsRequired()
             .HasMaxLength(200);

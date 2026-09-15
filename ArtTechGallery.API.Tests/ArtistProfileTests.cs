@@ -333,6 +333,7 @@ public sealed class ArtistProfileTests(PostgresFixture fixture) : IClassFixture<
                 db.Exhibitions.Add(new Exhibition
                 {
                     ArtistProfileId = profile.Id, Title = "Exhibition", ExhibitionCode = exhibitionCode,
+                    Status = ExhibitionStatus.Published,
                     Artworks = [new Artwork { Id = artworkId, Title = "Artwork", WidthCm = 80, HeightCm = 60, ImageUrl = "https://example.test/image.jpg" }]
                 });
                 await db.SaveChangesAsync();

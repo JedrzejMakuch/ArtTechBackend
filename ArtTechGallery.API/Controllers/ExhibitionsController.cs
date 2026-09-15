@@ -1,4 +1,5 @@
 using ArtTechGallery.Core.DTOs;
+using ArtTechGallery.Core.Models;
 using ArtTechGallery.Infrastructure.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -27,7 +28,7 @@ public sealed class ExhibitionsController : ControllerBase
             .AsNoTracking()
             .Where(x =>
                 x.ExhibitionCode == exhibitionCode &&
-                x.IsActive &&
+                x.Status == ExhibitionStatus.Published &&
                 x.ArtistProfile.IsActive &&
                 x.ArtistProfile.User.IsActive)
             .Select(x => new ExhibitionDto

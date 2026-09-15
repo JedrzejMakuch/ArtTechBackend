@@ -135,7 +135,7 @@ public static class AppDbSeeder
                     Description = "Testowa wystawa obrazów inspirowanych krajobrazem.",
                     ExhibitionCode = "colors-of-nature",
                     SortOrder = 1,
-                    IsActive = true,
+                    Status = ExhibitionStatus.Published,
                     CreatedAt = DateTime.UtcNow,
                     Artworks =
                     [
