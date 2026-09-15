@@ -35,6 +35,22 @@ builder.Services.AddSingleton<ProfileCodeGenerator>();
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 
+builder.Services.AddCors();
+builder.Services.AddOptions<Microsoft.AspNetCore.Cors.Infrastructure.CorsOptions>()
+    .Configure<IConfiguration>((options, configuration) =>
+{
+    var origins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+    foreach (var origin in origins)
+    {
+        if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            || uri.GetLeftPart(UriPartial.Authority) != origin || !string.IsNullOrEmpty(uri.UserInfo))
+            throw new InvalidOperationException("Cors:AllowedOrigins must contain exact HTTP(S) origins without paths or trailing slashes.");
+    }
+    options.AddPolicy("ArtistPanel", policy => policy.WithOrigins(origins)
+        .WithMethods("GET", "POST", "PUT", "DELETE").WithHeaders("Authorization", "Content-Type"));
+}).ValidateOnStart();
+
 var app = builder.Build();
 
 app.UseExceptionHandler();
@@ -71,6 +87,8 @@ if (app.Environment.IsDevelopment())
     await AppDbSeeder.SeedAsync(dbContext, userManager, demoBaseUri);
 }
 
+app.UseRouting();
+app.UseCors("ArtistPanel");
 app.UseAuthentication();
 app.UseAuthorization();
 

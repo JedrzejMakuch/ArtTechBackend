@@ -118,3 +118,31 @@ the application's existing development database was not changed.
 Use `ArtTechBackend.http` as a request template. Do not save real passwords or tokens
 into tracked files. Browser UI, email delivery, suspension workflows, publication and
 exhibition/artwork management remain outside this slice.
+
+## Artist panel browser access
+
+The separate `ArtTechArtistPanel` repository provides the Blazor WebAssembly profile
+UI. This API remains its only backend and Identity/user store. No schema change is
+needed for browser access.
+
+Configure `Cors:AllowedOrigins` as an array of exact panel origins in ignored local
+configuration or environment variables (`Cors__AllowedOrigins__0`, etc.). Each value
+must include scheme/host/port as applicable, with no path, credentials, query or
+trailing slash. The shared example contains an empty array. Invalid origins fail
+startup; an absent/empty array permits no cross-origin browser access.
+
+The named `ArtistPanel` policy permits GET/POST/PUT/DELETE with Authorization and Content-Type
+headers. Preflight runs before authentication/authorization, and allowed browsers
+can read authentication error responses. Cookies/credential inclusion and wildcard
+origins are not enabled. CORS is a browser policy, not an API authorization boundary;
+existing bearer authentication and `ActiveUser` remain authoritative. Native Unity
+requests are unaffected.
+
+Do not reuse `DevelopmentDemo:PublicBaseUrl` as the panel origin: it describes artwork
+URLs, not browser access. Keep listening addresses and actual panel/API addresses in
+local or deployment configuration. Use HTTPS when handling real credentials.
+
+`BrowserFoundationTests` supplements the existing PostgreSQL suite with CORS
+preflights, denied origins, readable 401 responses, usable refreshed bearer tokens,
+invalid/expired refresh tokens, and security-stamp invalidation. It uses the same
+isolated `ARTTECH_TEST_POSTGRES` fixture as the maintained profile tests.
