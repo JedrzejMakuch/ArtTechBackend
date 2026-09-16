@@ -5,11 +5,16 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using ArtTechGallery.Core.DTOs;
 using ArtTechGallery.Core.Models;
+using ArtTechGallery.API.Storage;
+using ArtTechGallery.Core.Storage;
+using ArtTechGallery.Infrastructure.Storage;
 using ArtTechGallery.Infrastructure.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using SkiaSharp;
 using Xunit;
 
 namespace ArtTechGallery.API.Tests;
@@ -25,6 +30,21 @@ public sealed class ArtistArtworkTests(PostgresFixture fixture) : IClassFixture<
                 x.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)) await action();
             return result;
         }
+    }
+    private sealed class FailArtworkSave : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData,
+            InterceptionResult<int> result, CancellationToken cancellationToken = default) =>
+            eventData.Context!.ChangeTracker.Entries<Artwork>().Any(x => x.State is EntityState.Added or EntityState.Modified)
+                ? ValueTask.FromException<InterceptionResult<int>>(new InvalidOperationException("Simulated database failure"))
+                : ValueTask.FromResult(result);
+    }
+    private sealed class FailingStorage : IArtworkStorage
+    {
+        public Task WriteAsync(ArtworkImageReference reference, Stream content, CancellationToken cancellationToken) =>
+            throw new IOException("Simulated storage failure");
+        public Task<Stream?> OpenReadAsync(ArtworkImageReference reference, CancellationToken cancellationToken) => Task.FromResult<Stream?>(null);
+        public Task DeleteIfExistsAsync(ArtworkImageReference reference, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     [Theory]
@@ -63,7 +83,7 @@ public sealed class ArtistArtworkTests(PostgresFixture fixture) : IClassFixture<
         {
             using var scope = fixture.Factory.Services.CreateScope();
             await AppDbSeeder.SeedAsync(scope.ServiceProvider.GetRequiredService<AppDbContext>(),
-                scope.ServiceProvider.GetRequiredService<UserManager<User>>(), new Uri("http://192.168.1.10:5188"));
+                scope.ServiceProvider.GetRequiredService<UserManager<User>>(), new Uri("https://artwork-images.test/"));
         }
         await Seed();
         using var client = fixture.Factory.CreateClient();
@@ -123,6 +143,32 @@ public sealed class ArtistArtworkTests(PostgresFixture fixture) : IClassFixture<
     }
     private static async Task Transition(HttpClient client, Guid id, string action) =>
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync($"/api/artist/exhibitions/{id}/{action}", new { })).StatusCode);
+
+    private static MultipartFormDataContent Upload(byte[]? image, string mime = "image/jpeg", string fileName = "ignored.jpg")
+    {
+        var content = new MultipartFormDataContent();
+        content.Add(new StringContent("Uploaded artwork"), "title");
+        content.Add(new StringContent("Uploaded description"), "description");
+        content.Add(new StringContent("2025"), "creationYear");
+        content.Add(new StringContent("80.25"), "widthCm");
+        content.Add(new StringContent("60.5"), "heightCm");
+        content.Add(new StringContent("4"), "sortOrder");
+        if (image is not null)
+        {
+            var file = new ByteArrayContent(image); file.Headers.ContentType = new(mime);
+            content.Add(file, "image", fileName);
+        }
+        return content;
+    }
+
+    private static byte[] Fixture(string name) => File.ReadAllBytes(Path.GetFullPath(Path.Combine(
+        AppContext.BaseDirectory, "../../../../ArtTechGallery.API/DevelopmentAssets/Artworks", name)));
+
+    private string StoredPath(string imageUrl, Guid artworkId)
+    {
+        var file = new Uri(imageUrl).Segments.Last();
+        return Path.Combine(fixture.StorageRoot, "artworks", artworkId.ToString("N"), file);
+    }
 
     private static void SameArtwork(OwnArtworkDto expected, OwnArtworkDto? actual)
     {
@@ -344,5 +390,179 @@ public sealed class ArtistArtworkTests(PostgresFixture fixture) : IClassFixture<
         await Problem(await anonymous.GetAsync("/api/artworks/" + art.Id), HttpStatusCode.NotFound);
         Assert.Empty((await anonymous.GetFromJsonAsync<ExhibitionDto>("/api/exhibitions/" + exhibition.ExhibitionCode))!.Artworks);
         Assert.Equal(HttpStatusCode.NoContent, (await owner.DeleteAsync(Route(exhibition.Id) + "/" + art.Id)).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("morning-forest.jpg", "image/jpeg")]
+    [InlineData("quiet-lake.png", "image/png")]
+    public async Task MultipartCreatePersistsValidatedImageAndPublicVisibilityFollowsLifecycle(string fileName, string mime)
+    {
+        using var owner = await Register(); using var anonymous = fixture.Factory.CreateClient();
+        var exhibition = await Exhibition(owner);
+        using var request = Upload(Fixture(fileName), mime, "../../untrusted-name.exe");
+        var response = await owner.PostAsync(Route(exhibition.Id), request);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var artwork = (await response.Content.ReadFromJsonAsync<OwnArtworkDto>())!;
+        Assert.StartsWith($"https://artwork-images.test/api/artworks/{artwork.Id}/images/", artwork.ImageUrl);
+        Assert.True(File.Exists(StoredPath(artwork.ImageUrl, artwork.Id)));
+        await Problem(await anonymous.GetAsync(artwork.ImageUrl), HttpStatusCode.NotFound);
+        await Transition(owner, exhibition.Id, "publish");
+        var image = await anonymous.GetAsync(artwork.ImageUrl);
+        Assert.Equal(HttpStatusCode.OK, image.StatusCode);
+        Assert.Equal(mime, image.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("nosniff", image.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.Equal(Fixture(fileName), await image.Content.ReadAsByteArrayAsync());
+        await Transition(owner, exhibition.Id, "deactivate");
+        await Problem(await anonymous.GetAsync(artwork.ImageUrl), HttpStatusCode.NotFound);
+        await Transition(owner, exhibition.Id, "publish");
+        Assert.Equal(HttpStatusCode.OK, (await anonymous.GetAsync(artwork.ImageUrl)).StatusCode);
+    }
+
+    [Fact]
+    public async Task MetadataOnlyEditRetainsImageAndReplacementAndDeletionCleanUpManagedFiles()
+    {
+        using var owner = await Register(); var exhibition = await Exhibition(owner);
+        using var create = Upload(Fixture("morning-forest.jpg"));
+        var createdResponse = await owner.PostAsync(Route(exhibition.Id), create);
+        var artwork = (await createdResponse.Content.ReadFromJsonAsync<OwnArtworkDto>())!;
+        var originalPath = StoredPath(artwork.ImageUrl, artwork.Id);
+        var legacyJson = Metadata(); legacyJson.ImageUrl = artwork.ImageUrl;
+        Assert.Equal(HttpStatusCode.OK,
+            (await owner.PutAsJsonAsync(Route(exhibition.Id) + "/" + artwork.Id, legacyJson)).StatusCode);
+        var forged = Metadata(); forged.ImageUrl = $"https://artwork-images.test/api/artworks/{artwork.Id}/images/{Guid.NewGuid():N}.jpg";
+        await Problem(await owner.PutAsJsonAsync(Route(exhibition.Id) + "/" + artwork.Id, forged), HttpStatusCode.BadRequest, true);
+        using var metadata = Upload(null);
+        var metadataResponse = await owner.PutAsync(Route(exhibition.Id) + "/" + artwork.Id, metadata);
+        Assert.Equal(HttpStatusCode.OK, metadataResponse.StatusCode);
+        Assert.Equal(artwork.ImageUrl, (await metadataResponse.Content.ReadFromJsonAsync<OwnArtworkDto>())!.ImageUrl);
+        Assert.True(File.Exists(originalPath));
+        using var replacement = Upload(Fixture("quiet-lake.png"), "image/png", "replacement.png");
+        var replacedResponse = await owner.PutAsync(Route(exhibition.Id) + "/" + artwork.Id, replacement);
+        Assert.Equal(HttpStatusCode.OK, replacedResponse.StatusCode);
+        var replaced = (await replacedResponse.Content.ReadFromJsonAsync<OwnArtworkDto>())!;
+        Assert.NotEqual(artwork.ImageUrl, replaced.ImageUrl);
+        Assert.False(File.Exists(originalPath)); Assert.True(File.Exists(StoredPath(replaced.ImageUrl, artwork.Id)));
+        Assert.Equal(HttpStatusCode.NoContent, (await owner.DeleteAsync(Route(exhibition.Id) + "/" + artwork.Id)).StatusCode);
+        Assert.False(File.Exists(StoredPath(replaced.ImageUrl, artwork.Id)));
+    }
+
+    [Fact]
+    public async Task MultipartRejectsMalformedMismatchedOversizedAndStructurallyInvalidRequests()
+    {
+        using var owner = await Register(); var exhibition = await Exhibition(owner);
+        foreach (var content in new[]
+        {
+            Upload(null), Upload([1,2,3,4], "image/jpeg"), Upload(Fixture("quiet-lake.png"), "image/jpeg"),
+            Upload(new byte[ArtworkImageValidator.MaximumBytes + 1], "image/jpeg")
+        })
+        {
+            using (content) await Problem(await owner.PostAsync(Route(exhibition.Id), content), HttpStatusCode.BadRequest, true);
+        }
+        using var duplicate = Upload(Fixture("morning-forest.jpg")); duplicate.Add(new StringContent("again"), "title");
+        await Problem(await owner.PostAsync(Route(exhibition.Id), duplicate), HttpStatusCode.BadRequest, true);
+        using var unknown = Upload(Fixture("morning-forest.jpg")); unknown.Add(new StringContent("bad"), "ownerId");
+        await Problem(await owner.PostAsync(Route(exhibition.Id), unknown), HttpStatusCode.BadRequest, true);
+        using var extra = Upload(Fixture("morning-forest.jpg")); extra.Add(new ByteArrayContent(Fixture("quiet-lake.png")), "secondImage", "b.png");
+        await Problem(await owner.PostAsync(Route(exhibition.Id), extra), HttpStatusCode.BadRequest, true);
+        Assert.Empty((await owner.GetFromJsonAsync<OwnArtworkDto[]>(Route(exhibition.Id)))!);
+    }
+
+    [Fact]
+    public async Task OversizedPixelImageAndForgedManagedJsonReferencesAreRejected()
+    {
+        using var owner = await Register(); var exhibition = await Exhibition(owner);
+        using var bitmap = new SKBitmap(4097, 1); using var image = SKImage.FromBitmap(bitmap);
+        using var encoded = image.Encode(SKEncodedImageFormat.Png, 100);
+        using var content = Upload(encoded.ToArray(), "image/png");
+        await Problem(await owner.PostAsync(Route(exhibition.Id), content), HttpStatusCode.BadRequest, true);
+        var forged = Metadata(); forged.ImageUrl = $"https://artwork-images.test/api/artworks/{Guid.NewGuid()}/images/{Guid.NewGuid():N}.jpg";
+        await Problem(await owner.PostAsJsonAsync(Route(exhibition.Id), forged), HttpStatusCode.BadRequest, true);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await fixture.Factory.CreateClient().GetAsync($"/api/artworks/{Guid.NewGuid()}/images/../../appsettings.json")).StatusCode);
+    }
+
+    [Fact]
+    public async Task UploadOwnershipAndInactiveProfileMatchExistingManagementRules()
+    {
+        using var owner = await Register(); using var other = await Register(); var exhibition = await Exhibition(owner);
+        using (var foreign = Upload(Fixture("morning-forest.jpg")))
+            await Problem(await other.PostAsync(Route(exhibition.Id), foreign), HttpStatusCode.NotFound);
+        await fixture.InDatabase(async db =>
+        {
+            var parent = await db.Exhibitions.Include(x => x.ArtistProfile).SingleAsync(x => x.Id == exhibition.Id);
+            parent.ArtistProfile.IsActive = false; await db.SaveChangesAsync();
+        });
+        using (var inactive = Upload(Fixture("morning-forest.jpg")))
+            await Problem(await owner.PostAsync(Route(exhibition.Id), inactive), HttpStatusCode.Forbidden);
+        using var anonymous = fixture.Factory.CreateClient(); using var unauthenticated = Upload(Fixture("morning-forest.jpg"));
+        await Problem(await anonymous.PostAsync(Route(exhibition.Id), unauthenticated), HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task DatabaseFailureRemovesNewlyFinalizedImageWithoutCreatingArtwork()
+    {
+        using var owner = await Register(); var exhibition = await Exhibition(owner);
+        var before = Directory.Exists(fixture.StorageRoot)
+            ? Directory.GetFiles(fixture.StorageRoot, "*", SearchOption.AllDirectories).Length : 0;
+        using var factory = fixture.Factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+            services.ConfigureDbContext<AppDbContext>(options => options.AddInterceptors(new FailArtworkSave()))));
+        using var client = factory.CreateClient(); client.DefaultRequestHeaders.Authorization = owner.DefaultRequestHeaders.Authorization;
+        using var upload = Upload(Fixture("morning-forest.jpg"));
+        Assert.Equal(HttpStatusCode.InternalServerError, (await client.PostAsync(Route(exhibition.Id), upload)).StatusCode);
+        var after = Directory.Exists(fixture.StorageRoot)
+            ? Directory.GetFiles(fixture.StorageRoot, "*", SearchOption.AllDirectories).Length : 0;
+        Assert.Equal(before, after);
+        Assert.Empty((await owner.GetFromJsonAsync<OwnArtworkDto[]>(Route(exhibition.Id)))!);
+    }
+
+    [Fact]
+    public async Task StorageFailureDoesNotCreateAnArtwork()
+    {
+        using var owner = await Register(); var exhibition = await Exhibition(owner);
+        using var factory = fixture.Factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IArtworkStorage>(); services.AddSingleton<IArtworkStorage, FailingStorage>();
+        }));
+        using var client = factory.CreateClient(); client.DefaultRequestHeaders.Authorization = owner.DefaultRequestHeaders.Authorization;
+        using var upload = Upload(Fixture("morning-forest.jpg"));
+        Assert.Equal(HttpStatusCode.InternalServerError, (await client.PostAsync(Route(exhibition.Id), upload)).StatusCode);
+        Assert.Empty((await owner.GetFromJsonAsync<OwnArtworkDto[]>(Route(exhibition.Id)))!);
+    }
+
+    [Fact]
+    public async Task ConcurrentReplacementsLeaveOnlyTheAuthoritativeManagedVersion()
+    {
+        using var owner = await Register(); var exhibition = await Exhibition(owner);
+        using var create = Upload(Fixture("morning-forest.jpg"));
+        var createdResponse = await owner.PostAsync(Route(exhibition.Id), create);
+        var artwork = (await createdResponse.Content.ReadFromJsonAsync<OwnArtworkDto>())!;
+        using var first = Upload(Fixture("quiet-lake.png"), "image/png", "first.png");
+        using var second = Upload(Fixture("mountain-road.jpg"), "image/jpeg", "second.jpg");
+        var responses = await Task.WhenAll(
+            owner.PutAsync(Route(exhibition.Id) + "/" + artwork.Id, first),
+            owner.PutAsync(Route(exhibition.Id) + "/" + artwork.Id, second));
+        Assert.All(responses, x => Assert.Equal(HttpStatusCode.OK, x.StatusCode));
+        var current = (await owner.GetFromJsonAsync<OwnArtworkDto>(Route(exhibition.Id) + "/" + artwork.Id))!;
+        var files = Directory.GetFiles(Path.Combine(fixture.StorageRoot, "artworks", artwork.Id.ToString("N")));
+        Assert.Single(files);
+        Assert.Equal(Path.GetFileName(StoredPath(current.ImageUrl, artwork.Id)), Path.GetFileName(files[0]));
+    }
+
+    [Fact]
+    public async Task LocalStorageSurvivesRestartAndReconcilesAbandonedTemporaryWrites()
+    {
+        var artworkId = Guid.NewGuid();
+        var reference = new ArtworkImageReference(artworkId, Guid.NewGuid().ToString("N"), "jpg");
+        var first = new LocalArtworkStorage(fixture.StorageRoot);
+        await first.WriteAsync(reference, new MemoryStream(Fixture("morning-forest.jpg")), default);
+        var temporary = StoredPath("https://artwork-images.test/api/artworks/" + artworkId + "/images/" + reference.Version + ".jpg", artworkId) + ".tmp-abandoned";
+        await File.WriteAllTextAsync(temporary, "abandoned");
+        var restarted = new LocalArtworkStorage(fixture.StorageRoot);
+        await using (var reopened = await restarted.OpenReadAsync(reference, default))
+        {
+            Assert.NotNull(reopened); Assert.Equal(Fixture("morning-forest.jpg").Length, reopened.Length);
+        }
+        Assert.False(File.Exists(temporary));
+        await restarted.DeleteIfExistsAsync(reference, default);
     }
 }

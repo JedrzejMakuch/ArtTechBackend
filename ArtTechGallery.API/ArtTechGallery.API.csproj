@@ -11,6 +11,8 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="SkiaSharp" Version="3.119.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.1" />
   </ItemGroup>
 
   <ItemGroup>
@@ -21,6 +23,8 @@
     <!-- Source-tree development fixtures must never ship with published applications. -->
     <Content Update="DevelopmentAssets/**" CopyToPublishDirectory="Never" />
     <None Update="DevelopmentAssets/**" CopyToPublishDirectory="Never" />
+    <Content Update="RuntimeData/**" CopyToPublishDirectory="Never" />
+    <None Update="RuntimeData/**" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
 </Project>

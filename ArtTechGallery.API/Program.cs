@@ -5,6 +5,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using ArtTechGallery.API.Authorization;
 using Microsoft.AspNetCore.Authorization;
+using ArtTechGallery.API.Storage;
+using ArtTechGallery.Core.Storage;
+using ArtTechGallery.Infrastructure.Storage;
+using Microsoft.AspNetCore.Http.Features;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,6 +36,30 @@ builder.Services.AddAuthorizationBuilder().AddPolicy(ActiveUserRequirement.Polic
 builder.Services.AddScoped<IAuthorizationHandler, ActiveUserAuthorizationHandler>();
 builder.Services.AddSingleton<ProfileCodeGenerator>();
 builder.Services.AddSingleton<ExhibitionCodeGenerator>();
+
+var storageOptions = builder.Configuration.GetSection(ArtworkStorageOptions.Section).Get<ArtworkStorageOptions>()
+    ?? new ArtworkStorageOptions();
+if (!Uri.TryCreate(storageOptions.PublicBaseUrl, UriKind.Absolute, out var artworkPublicBaseUri)
+    || artworkPublicBaseUri.Scheme is not ("http" or "https")
+    || artworkPublicBaseUri.GetLeftPart(UriPartial.Authority) + artworkPublicBaseUri.AbsolutePath.TrimEnd('/') != storageOptions.PublicBaseUrl.TrimEnd('/')
+    || !string.IsNullOrEmpty(artworkPublicBaseUri.UserInfo))
+    throw new InvalidOperationException("ArtworkStorage:PublicBaseUrl must be an absolute HTTP(S) URL without credentials, query or fragment.");
+var artworkStorageRoot = Path.IsPathRooted(storageOptions.RootPath)
+    ? storageOptions.RootPath : Path.Combine(builder.Environment.ContentRootPath, storageOptions.RootPath);
+artworkStorageRoot = Path.GetFullPath(artworkStorageRoot);
+var contentRoot = Path.GetFullPath(builder.Environment.ContentRootPath).TrimEnd(Path.DirectorySeparatorChar)
+    + Path.DirectorySeparatorChar;
+if (string.IsNullOrWhiteSpace(storageOptions.RootPath)
+    || artworkStorageRoot.StartsWith(contentRoot, StringComparison.OrdinalIgnoreCase))
+    throw new InvalidOperationException("ArtworkStorage:RootPath must be a dedicated directory outside the application content root.");
+builder.Services.AddSingleton(new ManagedArtworkImageUrls(new Uri(storageOptions.PublicBaseUrl.TrimEnd('/') + "/")));
+builder.Services.AddSingleton<IArtworkStorage>(new LocalArtworkStorage(artworkStorageRoot));
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = ArtworkImageValidator.MaximumBytes + 64 * 1024;
+    options.ValueCountLimit = 16;
+    options.MultipartHeadersCountLimit = 16;
+});
 
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
