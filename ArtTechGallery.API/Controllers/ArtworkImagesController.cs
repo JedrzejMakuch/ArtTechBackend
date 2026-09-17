@@ -17,9 +17,8 @@ public sealed class ArtworkImagesController(AppDbContext dbContext, IArtworkStor
     {
         if (!ArtworkImageReference.TryCreate(artworkId, version, extension.ToLowerInvariant(), out var reference)) return NotFound();
         var expected = imageUrls.Create(reference!);
-        var visible = await dbContext.Artworks.AsNoTracking().AnyAsync(x => x.Id == artworkId
-            && x.ImageUrl == expected && x.IsActive && x.Exhibition.Status == ExhibitionStatus.Published
-            && x.Exhibition.ArtistProfile.IsActive && x.Exhibition.ArtistProfile.User.IsActive, cancellationToken);
+        var visible = await dbContext.Artworks.AsNoTracking().VisibleToPublic()
+            .AnyAsync(x => x.Id == artworkId && x.ImageUrl == expected, cancellationToken);
         if (!visible) return NotFound();
         var content = await storage.OpenReadAsync(reference!, cancellationToken);
         if (content is null) return NotFound();

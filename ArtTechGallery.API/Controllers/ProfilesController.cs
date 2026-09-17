@@ -26,10 +26,8 @@ public sealed class ProfilesController : ControllerBase
     {
         ArtistProfileDto? profile = await _dbContext.ArtistProfiles
             .AsNoTracking()
-            .Where(x =>
-                x.ProfileCode == profileCode &&
-                x.IsActive &&
-                x.User.IsActive)
+            .VisibleToPublic()
+            .Where(x => x.ProfileCode == profileCode)
             .Select(x => new ArtistProfileDto
             {
                 Id = x.Id,
@@ -40,6 +38,7 @@ public sealed class ProfilesController : ControllerBase
                 Exhibitions = x.Exhibitions
                     .Where(exhibition => exhibition.Status == ExhibitionStatus.Published)
                     .OrderBy(exhibition => exhibition.SortOrder)
+                    .ThenBy(exhibition => exhibition.Id)
                     .Select(exhibition => new ExhibitionSummaryDto
                     {
                         Id = exhibition.Id,

@@ -131,6 +131,51 @@ public sealed class ArtistExhibitionTests(PostgresFixture fixture) : IClassFixtu
     }
 
     [Fact]
+    public async Task PublicProfileListsOnlyPublishedExhibitionsInDeterministicOrder()
+    {
+        using var owner = await Register();
+        using var anonymous = fixture.Factory.CreateClient();
+        var profile = (await owner.GetFromJsonAsync<OwnArtistProfileDto>("/api/artist/profile"))!;
+        var draft = await Create(owner, "Draft", 0);
+        var firstTied = await Create(owner, "First tied", 4);
+        var secondTied = await Create(owner, "Second tied", 4);
+        var empty = await Create(owner, "Empty", 8);
+        var deactivated = await Create(owner, "Deactivated", 1);
+        foreach (var exhibition in new[] { firstTied, secondTied, empty, deactivated })
+            Assert.Equal(HttpStatusCode.OK, (await Transition(owner, exhibition.Id, "publish")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Transition(owner, deactivated.Id, "deactivate")).StatusCode);
+        await fixture.InDatabase(async db =>
+        {
+            db.Artworks.AddRange(
+                new Artwork { ExhibitionId = firstTied.Id, Title = "Visible", IsActive = true },
+                new Artwork { ExhibitionId = firstTied.Id, Title = "Hidden", IsActive = false },
+                new Artwork { ExhibitionId = secondTied.Id, Title = "Also visible", IsActive = true });
+            await db.SaveChangesAsync();
+        });
+
+        var response = await anonymous.GetAsync("/api/profiles/" + profile.ProfileCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var json = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
+        Assert.Equal(new[] { "bio", "displayName", "exhibitions", "id", "profileCode", "profileImageUrl" },
+            json.Select(x => x.Key).Order().ToArray());
+        var summaries = json["exhibitions"]!.AsArray();
+        Assert.All(summaries, item => Assert.Equal(
+            new[] { "artworksCount", "description", "exhibitionCode", "id", "sortOrder", "title" },
+            item!.AsObject().Select(x => x.Key).Order().ToArray()));
+        var result = json.Deserialize<ArtistProfileDto>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var expectedTies = new[] { firstTied, secondTied }.OrderBy(x => x.Id).Select(x => x.Id);
+        Assert.Equal(expectedTies.Append(empty.Id), result.Exhibitions.Select(x => x.Id));
+        Assert.Equal(new[] { 1, 1, 0 }, result.Exhibitions.Select(x => x.ArtworksCount));
+        Assert.DoesNotContain(result.Exhibitions, x => x.Id == draft.Id || x.Id == deactivated.Id);
+
+        using var unpublishedOwner = await Register();
+        var unpublishedProfile = (await unpublishedOwner.GetFromJsonAsync<OwnArtistProfileDto>("/api/artist/profile"))!;
+        var emptyResponse = await anonymous.GetAsync("/api/profiles/" + unpublishedProfile.ProfileCode);
+        Assert.Equal(HttpStatusCode.OK, emptyResponse.StatusCode);
+        Assert.Empty((await emptyResponse.Content.ReadFromJsonAsync<ArtistProfileDto>())!.Exhibitions);
+    }
+
+    [Fact]
     public async Task OwnershipMissingProfilesAndListOrdering()
     {
         using var owner = await Register();

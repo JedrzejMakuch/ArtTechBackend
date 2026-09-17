@@ -407,14 +407,22 @@ public sealed class ArtistArtworkTests(PostgresFixture fixture) : IClassFixture<
         Assert.True(File.Exists(StoredPath(artwork.ImageUrl, artwork.Id)));
         await Problem(await anonymous.GetAsync(artwork.ImageUrl), HttpStatusCode.NotFound);
         await Transition(owner, exhibition.Id, "publish");
+        Assert.Single((await anonymous.GetFromJsonAsync<ArtistProfileDto>(
+            "/api/profiles/" + (await owner.GetFromJsonAsync<OwnArtistProfileDto>("/api/artist/profile"))!.ProfileCode))!.Exhibitions);
         var image = await anonymous.GetAsync(artwork.ImageUrl);
         Assert.Equal(HttpStatusCode.OK, image.StatusCode);
         Assert.Equal(mime, image.Content.Headers.ContentType?.MediaType);
         Assert.Equal("nosniff", image.Headers.GetValues("X-Content-Type-Options").Single());
         Assert.Equal(Fixture(fileName), await image.Content.ReadAsByteArrayAsync());
         await Transition(owner, exhibition.Id, "deactivate");
+        Assert.Empty((await anonymous.GetFromJsonAsync<ArtistProfileDto>(
+            "/api/profiles/" + (await owner.GetFromJsonAsync<OwnArtistProfileDto>("/api/artist/profile"))!.ProfileCode))!.Exhibitions);
+        await Problem(await anonymous.GetAsync("/api/exhibitions/" + exhibition.ExhibitionCode), HttpStatusCode.NotFound);
+        await Problem(await anonymous.GetAsync("/api/artworks/" + artwork.Id), HttpStatusCode.NotFound);
         await Problem(await anonymous.GetAsync(artwork.ImageUrl), HttpStatusCode.NotFound);
         await Transition(owner, exhibition.Id, "publish");
+        Assert.Equal(HttpStatusCode.OK, (await anonymous.GetAsync("/api/exhibitions/" + exhibition.ExhibitionCode)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await anonymous.GetAsync("/api/artworks/" + artwork.Id)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await anonymous.GetAsync(artwork.ImageUrl)).StatusCode);
     }
 

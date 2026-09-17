@@ -26,12 +26,8 @@ public sealed class ArtworksController : ControllerBase
     {
         ArtworkDetailsDto? artwork = await _dbContext.Artworks
             .AsNoTracking()
-            .Where(x =>
-                x.Id == id &&
-                x.IsActive &&
-                x.Exhibition.Status == ExhibitionStatus.Published &&
-                x.Exhibition.ArtistProfile.IsActive &&
-                x.Exhibition.ArtistProfile.User.IsActive)
+            .VisibleToPublic()
+            .Where(x => x.Id == id)
             .Select(x => new ArtworkDetailsDto
             {
                 Id = x.Id,

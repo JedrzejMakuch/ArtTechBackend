@@ -26,11 +26,8 @@ public sealed class ExhibitionsController : ControllerBase
     {
         ExhibitionDto? exhibition = await _dbContext.Exhibitions
             .AsNoTracking()
-            .Where(x =>
-                x.ExhibitionCode == exhibitionCode &&
-                x.Status == ExhibitionStatus.Published &&
-                x.ArtistProfile.IsActive &&
-                x.ArtistProfile.User.IsActive)
+            .VisibleToPublic()
+            .Where(x => x.ExhibitionCode == exhibitionCode)
             .Select(x => new ExhibitionDto
             {
                 Id = x.Id,
